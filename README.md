@@ -1,6 +1,8 @@
 ### Requirement Params
 - A csv file should be exported from Rapid 7 InsightVM (or Nexpose) as "Basic Vulnerabilities Check Result" template.
 - An xml file should be exported from Rapid 7 InsightVM (or Nexpose) as "XML Export 2.0" template.
+  
+-----------
 
 ### HOW TO RUN THE GENERATE SOLUTION DETAILS SCRIPT:
 
