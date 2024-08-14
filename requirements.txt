@@ -1,0 +1,6 @@
+pandas
+lxml
+openpyxl
+argparse
+logging
+tqdm
