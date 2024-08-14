@@ -94,7 +94,13 @@ def process_linux_dataframe(df_main):
     df_main.drop(columns=['Solution'], inplace=True)
 
     df_main = df_main.drop_duplicates(subset=['Asset IP Address', 'Services']).copy()
-    df_main.loc[:, 'Owner'] = ' '  # Add Owner column with a blank space
+
+    # Ensure the DataFrame has a proper index
+    df_main.reset_index(drop=True, inplace=True)
+    
+    # Add Owner column with a blank space
+    df_main['Owner'] = ' '
+
     return df_main
 
 def process_windows_dataframe(df_windows):
@@ -102,10 +108,17 @@ def process_windows_dataframe(df_windows):
     df_windows['Services'] = df_windows['Solution'].apply(lambda x: '=>'.join(x.split('=>')[:-1]).strip())
     df_windows['Solution Details'] = df_windows['Solution'].apply(lambda x: x.split('=>')[-1].strip())
     df_windows.drop(columns=['Solution'], inplace=True)
-    
+
     df_windows = df_windows.copy()
-    df_windows.loc[:, 'Owner'] = ' '  # Add Owner column with a blank space
+
+    # Ensure the DataFrame has a proper index
+    df_windows.reset_index(drop=True, inplace=True)
+    
+    # Add Owner column with a blank space
+    df_windows['Owner'] = ' '
+
     return df_windows
+
 
 def save_to_excel(df_main, df_windows, output_file):
     print("Writing data to Excel file...")
