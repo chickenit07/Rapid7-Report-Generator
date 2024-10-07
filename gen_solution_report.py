@@ -12,16 +12,23 @@ def parse_xml_for_solutions_and_products(xml_file, vuln_ids):
     solutions = {}
     ip_product_map = {}
     ip_os_family_map = {}
+    ip_hostname_map = {}  # New map for storing hostnames
 
-    # Extract product names and OS family for each IP address
+    # Extract product names, OS family, and hostnames for each IP address
     for node in root.xpath(".//node"):
         ip_address = node.get("address")
         fingerprint = node.find(".//fingerprints/os")
+        hostname_elem = node.find(".//names/name")  # Extract the hostname
+
         if fingerprint is not None:
             product_name = fingerprint.get("product")
             os_family = fingerprint.get("family")  # Extract the OS family
             ip_product_map[ip_address] = product_name
             ip_os_family_map[ip_address] = os_family
+
+        if hostname_elem is not None:
+            hostname = hostname_elem.text.strip()
+            ip_hostname_map[ip_address] = hostname
 
     for vuln_id in tqdm(vuln_ids, desc="Parsing XML for Solutions"):
         solution_list = []
@@ -64,7 +71,6 @@ def parse_xml_for_solutions_and_products(xml_file, vuln_ids):
                     text_parts.append(elem.text.strip())
             paragraph_text = "".join(text_parts)
             if paragraph_text:
-                # Add vuln_id prefix to the paragraph text
                 solution_list.append(f"{vuln_id} => {paragraph_text}")
 
         # Check for solutions nested within ContainerBlockElement/Paragraph/Paragraph
@@ -80,12 +86,11 @@ def parse_xml_for_solutions_and_products(xml_file, vuln_ids):
                     text_parts.append(elem.text.strip())
             nested_text = "".join(text_parts)
             if nested_text:
-                # Add vuln_id prefix to the nested paragraph text
                 solution_list.append(f"{vuln_id} => {nested_text}")
 
         solutions[vuln_id] = solution_list
 
-    return solutions, ip_product_map, ip_os_family_map
+    return solutions, ip_product_map, ip_os_family_map, ip_hostname_map  # Return the hostname map
 
 def read_and_sort_csv(csv_file):
     print("Reading and sorting CSV file...")
@@ -94,12 +99,13 @@ def read_and_sort_csv(csv_file):
     print(f"CSV file loaded with {len(df)} records.")
     return df_sorted
 
-def process_vulnerabilities(df_sorted, solutions, ip_product_map, ip_os_family_map):
+def process_vulnerabilities(df_sorted, solutions, ip_product_map, ip_os_family_map, ip_hostname_map):
     print("Processing vulnerabilities...")
     output_data_main = []
     output_data_windows = []
 
     processed_vuln_ids = set()
+    processed_solutions_by_ip = {}  # Dictionary to track unique solutions by IP address
 
     for _, row in tqdm(df_sorted.iterrows(), total=df_sorted.shape[0], desc="Processing Rows"):
         ip_address = row['Asset IP Address']
@@ -107,27 +113,43 @@ def process_vulnerabilities(df_sorted, solutions, ip_product_map, ip_os_family_m
         
         if (ip_address, vuln_id) in processed_vuln_ids:
             continue
-                
+
         solution_items = solutions.get(vuln_id, [])
         os_family = ip_os_family_map.get(ip_address, "")
+        product_name = ip_product_map.get(ip_address, "")
+        hostname = ip_hostname_map.get(ip_address, "")
+
+        # Construct the full IP address string with product name and hostname
+        ip_with_details = ip_address
+        if product_name:
+            ip_with_details += f" - {product_name}"
+        if hostname:
+            ip_with_details += f" - {hostname}"
 
         if not solution_items:
             print(f"No solutions found for Vulnerability ID: {vuln_id} (OS Family: {os_family})")
         
-        if os_family.lower() == "windows":
-            product_name = ip_product_map.get(ip_address, "")
+        # Initialize the set for the current IP if not done already
+        if ip_address not in processed_solutions_by_ip:
+            processed_solutions_by_ip[ip_address] = set()
 
-            if vuln_id.startswith("msft"):
+        if os_family.lower() == "windows":
+            if vuln_id.startswith("msft") or vuln_id.startswith("microsoft-windows"):
                 filtered_solutions = [sol for sol in solution_items if product_name in sol]
             else:
                 filtered_solutions = solution_items
-            
             for solution in filtered_solutions:
-                ip_with_product = f"{ip_address} - {product_name}" if product_name else ip_address
-                output_data_windows.append([ip_with_product, solution])
+                # Only append unique solutions
+                if solution not in processed_solutions_by_ip[ip_address]:
+                    output_data_windows.append([ip_with_details, solution])
+                    processed_solutions_by_ip[ip_address].add(solution)
+            
         else:
             for solution in solution_items:
-                output_data_main.append([ip_address, solution])
+                # Only append unique solutions
+                if solution not in processed_solutions_by_ip[ip_address]:
+                    output_data_main.append([ip_with_details, solution])
+                    processed_solutions_by_ip[ip_address].add(solution)
 
         processed_vuln_ids.add((ip_address, vuln_id))
 
@@ -220,9 +242,9 @@ def main(csv_file, xml_file):
     
     df_sorted = read_and_sort_csv(csv_file)
     unique_vuln_ids = df_sorted['Vulnerability ID'].unique()
-    solutions, ip_product_map, ip_os_family_map = parse_xml_for_solutions_and_products(xml_file, unique_vuln_ids)
+    solutions, ip_product_map, ip_os_family_map, ip_hostname_map = parse_xml_for_solutions_and_products(xml_file, unique_vuln_ids)
     
-    output_data_main, output_data_windows = process_vulnerabilities(df_sorted, solutions, ip_product_map, ip_os_family_map)
+    output_data_main, output_data_windows = process_vulnerabilities(df_sorted, solutions, ip_product_map, ip_os_family_map, ip_hostname_map)
     df_main, df_windows = create_dataframes(output_data_main, output_data_windows)
 
     df_main = process_linux_dataframe(df_main)
@@ -232,6 +254,7 @@ def main(csv_file, xml_file):
     output_file = os.path.join(os.getcwd(), f"{base_name}_Solution_Details.xlsx")
     
     save_to_excel(df_main, df_windows, output_file)
+
 
 if __name__ == "__main__":
     if len(sys.argv) != 3:
